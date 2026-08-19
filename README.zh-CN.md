@@ -1,8 +1,8 @@
 # 视觉之眼（glm-vision）
 
-> 给没有视觉能力的大模型"加眼睛"：让纯文本模型能"看懂"图片。
+> 给没有视觉能力的大模型"加眼睛"：让纯文本模型能"看懂"图片和 PDF。
 
-调用智谱 GLM 免费视觉模型，把本地图片转成结构化文字描述，供任何纯文本大模型理解。跨平台（Windows / macOS / Linux），唯一要求是 bun 运行时。
+调用智谱 GLM 免费视觉模型，把本地图片 / PDF 转成结构化文字描述，供任何纯文本大模型理解。跨平台（Windows / macOS / Linux），唯一要求是 bun 运行时（主脚本）与 uv（PDF 渲染）。
 
 本技能面向开放的 Agent Skills 标准（agentskills.io），任何实现了该标准的宿主都能安装，无论其产品形态如何。核心脚本同时是独立命令行工具，不依赖任何宿主，任何终端都能直接运行。
 
@@ -14,7 +14,9 @@
 - **OCR**：逐字提取图中文字，保持排版结构
 - **深度分析**：图表数据转 Markdown 表格、趋势分析、公式解读
 - **反推提示词**：图片 → AI 绘画提示词（中英文输出）
-- **上传前预检**：存在性、格式白名单、0 字节、大小逐项检查；超限或损坏的文件在执行前被拦截并给出明确指引
+- **读 PDF**：逐页渲染识别（单本 ≤20 页、单次 ≤3 本）
+- **深度思考开关**：`--think` / `--no-think`，各模式有合理默认值
+- **上传前预检**：存在性、格式白名单、0 字节、大小逐项检查；超过 3.5MB 警告、超过 5MB 拒绝
 - **限流处理**：自动退避重试（2 次）、120 秒超时、逐张独立识别互不拖累
 
 ## 宿主兼容性
@@ -56,7 +58,8 @@ git clone https://github.com/STZ5353/glm-vision.git
 
 | 依赖 | 说明 |
 |---|---|
-| bun 运行时 | 运行脚本，每台机器装一次 |
+| bun 运行时 | 运行主脚本，每台机器装一次 |
+| uv 运行时 | 仅 PDF 渲染需要（首次运行联网下载 Python 环境，约 21MB，一次性） |
 | 智谱开放平台 API Key | 免费注册：https://open.bigmodel.cn → 控制台 → API Keys。默认模型完全免费，无需充值 |
 
 ### 3. 配置 API Key（三选一）
@@ -78,12 +81,14 @@ bun glm-vision.ts 图片.png                          # 详细描述（默认）
 bun glm-vision.ts ocr 截图.png                      # OCR 文字提取
 bun glm-vision.ts analyze 图表.png                  # 图表转表格、趋势分析
 bun glm-vision.ts prompt 插画.jpg                   # 反推绘画提示词
+bun glm-vision.ts pdf 文档.pdf                      # PDF 逐页识别
+bun glm-vision.ts ocr 截图.png --think              # 强制开启深度思考
 bun glm-vision.ts detail 图片.png --question "图里有几辆车？"
 ```
 
-常用参数：`--question` 自定义提问 / `--api-key KEY` / `--help`。
+常用参数：`--question` 自定义提问 / `--think` `--no-think` 思考开关 / `--api-key KEY` / `--help`。
 
-限制：图片 png/jpg/jpeg/webp/gif/bmp 单张 ≤5MB、单次 ≤5 张。
+限制：图片 png/jpg/jpeg/webp/gif/bmp 单张 ≤5MB（超过 3.5MB 警告）、单次 ≤5 张；PDF 单次 ≤3 本、每本 ≤20 页、单文件 ≤100MB。
 
 ## 版本与历史
 
@@ -96,11 +101,13 @@ bun glm-vision.ts detail 图片.png --question "图里有几辆车？"
 |---|---|
 | `SKILL.md` | 技能主文件：触发规则、执行工作流、避坑指南、质疑与回应摘要 |
 | `glm-vision.ts` | 主脚本（bun 运行时，零 npm 依赖） |
+| `pdf2png.py` | PDF 逐页渲染（uv + PyMuPDF） |
+| `evals.json` | 验证记录（可复跑） |
 | `README.md` | 本文件的英文版 |
 
 ## 隐私提醒（务必阅读）
 
-- 所有图片**会被上传到智谱服务器**进行识别
+- 所有图片和 PDF **会被上传到智谱服务器**进行识别
 - 证件、合同、内部资料等敏感文件，使用前请确认可接受第三方处理
 
 ## 许可

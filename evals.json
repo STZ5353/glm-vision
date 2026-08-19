@@ -1,0 +1,73 @@
+{
+  "skill_name": "glm-vision",
+  "version": "1.1",
+  "last_run": "2026-08-14",
+  "evals": [
+    {
+      "id": "syntax",
+      "name": "脚本语法检查",
+      "command": "bun build glm-vision.ts --no-bundle --target=bun",
+      "expected_output": "退出码 0，无编译错误",
+      "scorer": "success-signal",
+      "status": "passed"
+    },
+    {
+      "id": "help-and-args",
+      "name": "帮助与参数解析",
+      "command": "bun glm-vision.ts --help && bun glm-vision.ts ocr x.png --think && bun glm-vision.ts ocr x.png --no-think",
+      "expected_output": "帮助文本含 5 种模式与深度思考开关说明；--think/--no-think 被接受（走到文件预检阶段）",
+      "scorer": "success-signal",
+      "status": "passed"
+    },
+    {
+      "id": "guard-missing-file",
+      "name": "防错：文件不存在",
+      "command": "bun glm-vision.ts detail 不存在的图.png",
+      "expected_output": "exit=1，提示文件不存在与检查指引",
+      "scorer": "success-signal",
+      "status": "passed"
+    },
+    {
+      "id": "guard-empty-and-badext",
+      "name": "防错：0字节文件与非法扩展名",
+      "command": "touch empty.png && bun glm-vision.ts detail empty.png; echo x > fake.txt && bun glm-vision.ts detail fake.txt",
+      "expected_output": "分别提示\"文件为空 (0 字节)\"与\"不支持的格式\"，均 exit=1",
+      "scorer": "success-signal",
+      "status": "passed"
+    },
+    {
+      "id": "guard-no-key",
+      "name": "防错：未配置 API Key",
+      "command": "env -u ZHIPU_API_KEY -u GLM_API_KEY bun glm-vision.ts detail real.png",
+      "expected_output": "exit=2，打印四级 Key 配置指引（环境变量/配置文件/--api-key）",
+      "scorer": "success-signal",
+      "status": "passed"
+    },
+    {
+      "id": "live-image",
+      "name": "真实 API：图片识别（GLM-4.6V-Flash + 深度思考）",
+      "command": "用 PyMuPDF 生成含文字与线条的 test.png，bun glm-vision.ts detail test.png",
+      "expected_output": "输出含\"深度思考: 已开启\"，逐字提取文字准确，描述详细",
+      "scorer": "agent-judge",
+      "rubric": "文字逐字提取正确；输出包含模式与文件信息；无编造内容",
+      "status": "passed"
+    },
+    {
+      "id": "live-pdf",
+      "name": "真实 API：PDF 全链路（渲染→逐页识别→临时清理）",
+      "command": "用 PyMuPDF 生成 test.pdf，bun glm-vision.ts pdf test.pdf",
+      "expected_output": "渲染成功、逐页识别输出文字与图形描述准确、结束后系统临时目录无 glm-vision-* 残留",
+      "scorer": "agent-judge",
+      "rubric": "PDF 文字与图形内容识别准确；渲染临时目录被清理；输出含页号标记",
+      "status": "passed"
+    },
+    {
+      "id": "guard-ratelimit",
+      "name": "防错：限流兜底（真实触发过）",
+      "command": "高峰时段连续调用",
+      "expected_output": "识别 429/1302/1305 限流并自动退避重试，最终失败时给出\"稍后重试\"建议而非伪造结果",
+      "scorer": "success-signal",
+      "status": "passed"
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 # Vision Eye (glm-vision)
 
-> Give "eyes" to LLMs without vision: let plain-text models "see" images.
+> Give "eyes" to LLMs without vision: let plain-text models "see" images and PDFs.
 
-Uses Zhipu GLM's free vision models to turn local images into structured text descriptions that any text-only LLM can understand. Cross-platform (Windows / macOS / Linux). The only requirement is the bun runtime.
+Uses Zhipu GLM's free vision models to turn local images / PDFs into structured text descriptions that any text-only LLM can understand. Cross-platform (Windows / macOS / Linux). The only requirements are the bun runtime (main script) and uv (PDF rendering).
 
 The skill targets the open Agent Skills standard (agentskills.io), so it plugs into any host that implements it, regardless of product form. The core script also works as a plain CLI from any shell, with or without an agent.
 
@@ -14,7 +14,9 @@ The skill targets the open Agent Skills standard (agentskills.io), so it plugs i
 - **OCR** — verbatim text extraction while preserving layout structure
 - **Deep analysis** — chart data to Markdown tables, trend analysis, formula interpretation
 - **Image2Prompt** — reverse-engineer AI painting prompts from images, output in Chinese and English
-- **Preflight checks** — existence, extension whitelist, zero-byte and size checks run before upload; oversized or broken files are rejected with clear guidance
+- **PDF reading** — page-by-page rendering and recognition (up to 20 pages per PDF, 3 PDFs per run)
+- **Reasoning toggle** — `--think` / `--no-think`, with sensible per-mode defaults
+- **Preflight checks** — existence, extension whitelist, zero-byte and size checks before upload; files over 3.5 MB trigger a warning, over 5 MB are rejected
 - **Rate-limit handling** — automatic backoff retries (2×), 120-second timeouts, per-image isolation so one failure never stalls the rest
 
 ## Host compatibility
@@ -56,7 +58,8 @@ Copy the whole `glm-vision` folder into your host's skills directory (see the ta
 
 | Dependency | Notes |
 |---|---|
-| bun runtime | Runs the script — install once per machine |
+| bun runtime | Runs the main script — install once per machine |
+| uv runtime | Required for PDF rendering only (first run downloads a Python environment, ~21 MB, one-time) |
 | Zhipu AI Open Platform API key | Free signup: https://open.bigmodel.cn → Console → API Keys. The default model is fully free — no top-up needed |
 
 ### 3. Configure the API key (pick one)
@@ -78,12 +81,14 @@ bun glm-vision.ts image.png                        # detailed description (defau
 bun glm-vision.ts ocr screenshot.png               # OCR text extraction
 bun glm-vision.ts analyze chart.png                # charts to Markdown tables, trend analysis
 bun glm-vision.ts prompt artwork.jpg               # reverse AI painting prompts
+bun glm-vision.ts pdf paper.pdf                    # PDF page-by-page recognition
+bun glm-vision.ts ocr shot.png --think             # force reasoning on
 bun glm-vision.ts detail image.png --question "How many cars are in this image?"
 ```
 
-Common flags: `--question` custom prompt / `--api-key KEY` / `--help`.
+Common flags: `--question` custom prompt / `--think` `--no-think` reasoning toggle / `--api-key KEY` / `--help`.
 
-Limits: images png/jpg/jpeg/webp/gif/bmp up to 5 MB each, 5 images per run.
+Limits: images png/jpg/jpeg/webp/gif/bmp up to 5 MB each (warning over 3.5 MB), 5 images per run; PDFs up to 3 per run, 20 pages each, 100 MB per file.
 
 ## Versions & history
 
@@ -96,11 +101,13 @@ Limits: images png/jpg/jpeg/webp/gif/bmp up to 5 MB each, 5 images per run.
 |---|---|
 | `SKILL.md` | Main skill file: trigger rules, workflow, pitfalls guide, challenge-and-response summary |
 | `glm-vision.ts` | Main script (bun runtime, zero npm dependencies) |
+| `pdf2png.py` | PDF page rendering (uv + PyMuPDF) |
+| `evals.json` | Verification records (rerunnable) |
 | `README.zh-CN.md` | Chinese version of this file |
 
 ## Privacy (please read)
 
-- All images **are uploaded to Zhipu's servers** for recognition
+- All images and PDFs **are uploaded to Zhipu's servers** for recognition
 - For sensitive files (ID cards, contracts, internal materials), make sure third-party processing is acceptable before use
 
 ## License
