@@ -15,8 +15,8 @@ The skill targets the open Agent Skills standard (agentskills.io), so it plugs i
 - **Deep analysis** — chart data to Markdown tables, trend analysis, formula interpretation
 - **Image2Prompt** — reverse-engineer AI painting prompts from images, output in Chinese and English
 - **PDF reading** — page-by-page rendering and recognition (up to 20 pages per PDF, 3 PDFs per run)
+- **Resumable runs** — per-page cache: reruns skip pages already recognized and only fill in the failures
 - **Reasoning toggle** — `--think` / `--no-think`, with sensible per-mode defaults
-- **Preflight checks** — existence, extension whitelist, zero-byte and size checks before upload; files over 3.5 MB trigger a warning, over 5 MB are rejected
 - **Rate-limit handling** — automatic backoff retries (2×), 120-second timeouts, per-image isolation so one failure never stalls the rest
 
 ## Host compatibility
@@ -82,13 +82,12 @@ bun glm-vision.ts ocr screenshot.png               # OCR text extraction
 bun glm-vision.ts analyze chart.png                # charts to Markdown tables, trend analysis
 bun glm-vision.ts prompt artwork.jpg               # reverse AI painting prompts
 bun glm-vision.ts pdf paper.pdf                    # PDF page-by-page recognition
-bun glm-vision.ts ocr shot.png --think             # force reasoning on
 bun glm-vision.ts detail image.png --question "How many cars are in this image?"
 ```
 
-Common flags: `--question` custom prompt / `--think` `--no-think` reasoning toggle / `--api-key KEY` / `--help`.
+Common flags: `--question` custom prompt / `--think` `--no-think` reasoning toggle / `--force` ignore PDF cache and rerun everything / `--api-key KEY` / `--help`.
 
-Limits: images png/jpg/jpeg/webp/gif/bmp up to 5 MB each (warning over 3.5 MB), 5 images per run; PDFs up to 3 per run, 20 pages each, 100 MB per file.
+Limits: images png/jpg/jpeg/webp/gif/bmp up to 5 MB each, 5 images per run; PDFs up to 3 per run, 20 pages each, 100 MB per file.
 
 ## Versions & history
 
@@ -109,6 +108,7 @@ Limits: images png/jpg/jpeg/webp/gif/bmp up to 5 MB each (warning over 3.5 MB), 
 
 - All images and PDFs **are uploaded to Zhipu's servers** for recognition
 - For sensitive files (ID cards, contracts, internal materials), make sure third-party processing is acceptable before use
+- PDF resumable-run cache files (`.glm-vision.json`) sit next to the PDF and contain text results only; delete them after handling sensitive files
 
 ## License
 

@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## v1.2 - 2026-08-19
+
+- PDF resumable runs: per-page cache; reruns skip cached pages and only fill failures
+
 ## v1.1 - 2026-08-19
 
 - PDF page-by-page recognition (uv + PyMuPDF rendering)

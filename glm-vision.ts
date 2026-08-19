@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * glm-vision.ts — 视觉之眼核心脚本（v1.1）
+ * glm-vision.ts — 视觉之眼核心脚本
  *
  * 读取本地图片 → base64 编码 → 调用智谱 GLM-4.6V-Flash（免费视觉模型）
  * → 输出结构化文字识别结果。零依赖，仅需 bun 运行时。
@@ -26,13 +26,14 @@
  *   2. 环境变量 ZHIPU_API_KEY
  *   3. 环境变量 GLM_API_KEY
  *   4. 脚本同级目录 .glm-vision.json   内容: {"apiKey": "你的Key"}
+ *   5. 用户主目录 ~/.glm-vision.json
  *
  * 模型切换: 设置环境变量 GLM_VISION_MODEL（如 glm-4.6v-flashx），
  * 或替换为任意 OpenAI 兼容视觉模型服务的 model 名。
  */
-import { readFileSync, existsSync, statSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, existsSync, statSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, extname } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { spawnSync } from "bun";
 
 const API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
@@ -40,11 +41,12 @@ const MODEL = process.env.GLM_VISION_MODEL || "glm-4.6v-flash";
 const MAX_IMAGES = 5;      // 单次最多处理图片数，防止误传整个文件夹
 const MAX_PDFS = 3;        // 单次最多处理 PDF 数（PDF 按页计费调用，成本更高）
 const MAX_PDF_PAGES = 20;  // 单个 PDF 最多识别页数，超出需拆分
-// 官方限制：单张图片 base64 后 ≤5M。base64 膨胀约 1.33 倍，
+// 官方限制：单张图片 base64 后 ≤5M、像素 ≤6000x6000。base64 膨胀约 1.33 倍，
 // 故原始文件 >3.5MB 即警告、>5MB 直接拒绝（base64 后必然超限）。
 const WARN_SIZE_MB = 3.5;
 const REJECT_SIZE_MB = 5;
 const ALLOWED_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".pdf"]);
+const CACHE_SUFFIX = ".glm-vision.json"; // PDF 断点续跑缓存（与 PDF 同目录同名加后缀）
 
 // ---------- 模式 Prompt 模板 ----------
 const PROMPTS: Record<string, string> = {
@@ -101,20 +103,23 @@ function printHelp(): void {
 
 输入: 图片 png/jpg/jpeg/webp/gif/bmp（单张原始文件 ≤5MB），PDF 单次 ≤3 个、每个 ≤20 页
 深度思考: 默认 detail/analyze/pdf 开启、ocr/prompt 关闭；--think / --no-think 显式覆盖
-Key 优先级: --api-key > 环境变量 ZHIPU_API_KEY > GLM_API_KEY > .glm-vision.json
+断点续跑: PDF 每页识别成功后缓存到 <PDF路径>.glm-vision.json；重跑自动跳过已缓存页，仅补识别失败页。
+          --force 忽略缓存全部重跑；删除缓存文件即可彻底清除。
+Key 优先级: --api-key > 环境变量 ZHIPU_API_KEY > GLM_API_KEY > .glm-vision.json > ~/.glm-vision.json
 模型切换: 环境变量 GLM_VISION_MODEL（默认 glm-4.6v-flash）`);
 }
 
 function parseArgs(argv: string[]): {
-  mode: string; paths: string[]; question: string; apiKey: string; think: boolean | null;
+  mode: string; paths: string[]; question: string; apiKey: string; think: boolean | null; force: boolean;
 } {
-  const out = { mode: "detail", paths: [] as string[], question: "", apiKey: "", think: null as boolean | null };
+  const out = { mode: "detail", paths: [] as string[], question: "", apiKey: "", think: null as boolean | null, force: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--api-key") { out.apiKey = argv[++i] ?? ""; continue; }
     if (a === "--question" || a === "-q") { out.question = argv[++i] ?? ""; continue; }
     if (a === "--think") { out.think = true; continue; }
     if (a === "--no-think") { out.think = false; continue; }
+    if (a === "--force") { out.force = true; continue; }
     if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
     if (a.startsWith("--")) fail(`未知参数: ${a}`, 2);
     if (PROMPTS[a]) { out.mode = a; continue; }
@@ -127,21 +132,27 @@ function resolveApiKey(cliKey: string): string {
   if (cliKey) return cliKey;
   if (process.env.ZHIPU_API_KEY) return process.env.ZHIPU_API_KEY;
   if (process.env.GLM_API_KEY) return process.env.GLM_API_KEY;
-  const cfgPath = join(dirname(import.meta.path), ".glm-vision.json");
-  try {
-    if (existsSync(cfgPath)) {
-      const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
-      if (typeof cfg?.apiKey === "string" && cfg.apiKey.trim())
-        return cfg.apiKey.trim();
+  const candidates = [
+    join(dirname(import.meta.path), ".glm-vision.json"),
+    join(homedir(), ".glm-vision.json"),
+  ];
+  for (const p of candidates) {
+    try {
+      if (existsSync(p)) {
+        const cfg = JSON.parse(readFileSync(p, "utf-8"));
+        if (typeof cfg?.apiKey === "string" && cfg.apiKey.trim())
+          return cfg.apiKey.trim();
+      }
+    } catch {
+      // 配置文件损坏则跳过，继续尝试下一来源
     }
-  } catch {
-    // 配置文件损坏则跳过，继续尝试下一来源
   }
   fail(
     "未找到 API Key。请通过以下任一方式提供：\n" +
     "  1) 环境变量 ZHIPU_API_KEY 或 GLM_API_KEY\n" +
     '  2) 脚本同目录 .glm-vision.json，内容 {"apiKey": "你的Key"}\n' +
-    "  3) 命令行 --api-key 参数（不推荐，会留在 shell 历史）",
+    "  3) 用户主目录 ~/.glm-vision.json\n" +
+    "  4) 命令行 --api-key 参数（不推荐，会留在 shell 历史）",
     2,
   );
 }
@@ -264,13 +275,48 @@ function renderPdf(pdfPath: string): { tmpDir: string; pages: string[] } {
   return { tmpDir, pages };
 }
 
-/** 识别一个 PDF：逐页渲染 → 逐页调用 API → 清理临时文件。返回本次成功页数。 */
+/** PDF 断点续跑缓存结构：页码(从1) → 识别结果 */
+type PdfCache = {
+  model: string;
+  mode: string;
+  question: string;
+  total: number;
+  pages: Record<string, string>;
+};
+
+function cachePathFor(pdfPath: string): string {
+  return pdfPath + CACHE_SUFFIX;
+}
+
+function loadCache(pdfPath: string): PdfCache | null {
+  try {
+    if (!existsSync(cachePathFor(pdfPath))) return null;
+    const raw = JSON.parse(readFileSync(cachePathFor(pdfPath), "utf-8"));
+    if (raw && typeof raw === "object" && raw.pages && typeof raw.pages === "object") {
+      return raw as PdfCache;
+    }
+    return null;
+  } catch {
+    return null; // 缓存损坏视为无缓存
+  }
+}
+
+function saveCache(pdfPath: string, cache: PdfCache): void {
+  try {
+    writeFileSync(cachePathFor(pdfPath), JSON.stringify(cache, null, 2), "utf-8");
+  } catch (e) {
+    console.warn(`[glm-vision] 警告: 缓存写入失败: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/** 识别一个 PDF：逐页渲染 → 逐页调用 API（命中缓存则跳过）→ 清理临时文件。返回本次成功页数。 */
 async function processPdf(
   pdfPath: string,
   apiKey: string,
   mode: string,
   question: string,
   think: boolean,
+  force: boolean,
   fileIndex: number,
   fileTotal: number,
 ): Promise<number> {
@@ -278,12 +324,31 @@ async function processPdf(
   console.log(`▸ 渲染中（uv + PyMuPDF，150dpi）...`);
   const { tmpDir, pages } = renderPdf(pdfPath);
 
+  // 读取断点缓存；--force 或 model/mode/question 变化则忽略缓存
+  let pagesCache: Record<string, string> = {};
+  if (!force) {
+    const c = loadCache(pdfPath);
+    if (c && c.model === MODEL && c.mode === mode && c.question === question) {
+      pagesCache = { ...(c.pages ?? {}) };
+    }
+  }
+  const cachedBefore = Object.keys(pagesCache).length;
+  if (cachedBefore > 0) {
+    console.log(`▸ 断点续跑：已缓存 ${cachedBefore}/${pages.length} 页，命中页将跳过 API 调用。`);
+  }
+
   let ok = 0;
   try {
     console.log(`▸ 共 ${pages.length} 页，开始逐页识别...`);
     for (let i = 0; i < pages.length; i++) {
       const pageNo = String(i + 1);
       console.log(`\n[第 ${i + 1}/${pages.length} 页]`);
+      if (pagesCache[pageNo]) {
+        console.log(`  （命中缓存，跳过 API 调用）`);
+        console.log(pagesCache[pageNo]);
+        ok++;
+        continue;
+      }
       try {
         const buf = readFileSync(pages[i]);
         const b64 = buf.toString("base64");
@@ -292,16 +357,23 @@ async function processPdf(
           .replaceAll("{total}", String(pages.length));
         const result = await callApi(apiKey, b64, prompt, think);
         console.log(result);
+        pagesCache[pageNo] = result;
         ok++;
+        // 每页成功立即增量写缓存，中途中断也不丢已识别页
+        saveCache(pdfPath, { model: MODEL, mode, question, total: pages.length, pages: pagesCache });
       } catch (e) {
         console.error(`  本页识别失败: ${e instanceof Error ? e.message : String(e)}`);
-        console.error("  已跳过本页，继续识别其余页面。");
+        console.error("  已跳过本页，继续识别其余页面。（失败页未缓存，下次可续跑）");
       }
     }
   } finally {
     rmSync(tmpDir, { recursive: true, force: true }); // 无论成败都清理临时渲染文件
   }
 
+  const totalCached = Object.keys(pagesCache).length;
+  if (totalCached > 0) {
+    console.log(`\n▸ 本 PDF 累计缓存 ${totalCached}/${pages.length} 页 → ${cachePathFor(pdfPath)}`);
+  }
   return ok;
 }
 
@@ -329,7 +401,7 @@ async function main(): Promise<void> {
   for (let i = 0; i < args.paths.length; i++) {
     const p = args.paths[i];
     if (extname(p).toLowerCase() === ".pdf") {
-      okUnits += await processPdf(p, apiKey, args.mode, args.question, think, i, args.paths.length);
+      okUnits += await processPdf(p, apiKey, args.mode, args.question, think, args.force, i, args.paths.length);
       continue;
     }
     totalUnits++;

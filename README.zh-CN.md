@@ -15,8 +15,8 @@
 - **深度分析**：图表数据转 Markdown 表格、趋势分析、公式解读
 - **反推提示词**：图片 → AI 绘画提示词（中英文输出）
 - **读 PDF**：逐页渲染识别（单本 ≤20 页、单次 ≤3 本）
+- **断点续跑**：每页识别结果即时缓存，重跑自动跳过已识别页、只补失败页
 - **深度思考开关**：`--think` / `--no-think`，各模式有合理默认值
-- **上传前预检**：存在性、格式白名单、0 字节、大小逐项检查；超过 3.5MB 警告、超过 5MB 拒绝
 - **限流处理**：自动退避重试（2 次）、120 秒超时、逐张独立识别互不拖累
 
 ## 宿主兼容性
@@ -82,13 +82,12 @@ bun glm-vision.ts ocr 截图.png                      # OCR 文字提取
 bun glm-vision.ts analyze 图表.png                  # 图表转表格、趋势分析
 bun glm-vision.ts prompt 插画.jpg                   # 反推绘画提示词
 bun glm-vision.ts pdf 文档.pdf                      # PDF 逐页识别
-bun glm-vision.ts ocr 截图.png --think              # 强制开启深度思考
 bun glm-vision.ts detail 图片.png --question "图里有几辆车？"
 ```
 
-常用参数：`--question` 自定义提问 / `--think` `--no-think` 思考开关 / `--api-key KEY` / `--help`。
+常用参数：`--question` 自定义提问 / `--think` `--no-think` 思考开关 / `--force` 忽略 PDF 缓存全量重跑 / `--api-key KEY` / `--help`。
 
-限制：图片 png/jpg/jpeg/webp/gif/bmp 单张 ≤5MB（超过 3.5MB 警告）、单次 ≤5 张；PDF 单次 ≤3 本、每本 ≤20 页、单文件 ≤100MB。
+限制：图片 png/jpg/jpeg/webp/gif/bmp 单张 ≤5MB、单次 ≤5 张；PDF 单次 ≤3 本、每本 ≤20 页、单文件 ≤100MB。
 
 ## 版本与历史
 
@@ -109,6 +108,7 @@ bun glm-vision.ts detail 图片.png --question "图里有几辆车？"
 
 - 所有图片和 PDF **会被上传到智谱服务器**进行识别
 - 证件、合同、内部资料等敏感文件，使用前请确认可接受第三方处理
+- PDF 断点续跑缓存文件（`.glm-vision.json`）与 PDF 同目录，只含文字结果；处理敏感文件后建议删除
 
 ## 许可
 
