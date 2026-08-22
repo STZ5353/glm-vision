@@ -2,7 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
-## v2.0 - 2026-08
+## v2.1 - 2026-08-22
+
+- `--fast` PDF text-layer extraction (zero API cost for text-only pages)
+- Per-page smart routing: raster/vector/scan pages go to vision, text pages are extracted directly
+
+## v2.0 - 2026-08-22
 
 - Bundled mupdf-wasm replaces the uv/Python PDF pipeline (zero-install, cross-platform)
 - Pure-TS Word parser; Word documents go through a three-tier fallback chain
