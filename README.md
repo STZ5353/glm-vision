@@ -1,8 +1,8 @@
 # Vision Eye (glm-vision)
 
-> Give "eyes" to LLMs without vision: let plain-text models "see" images and PDFs.
+> Give "eyes" to LLMs without vision: let plain-text models "see" images, PDFs, and Word documents.
 
-Uses Zhipu GLM's free vision models to turn local images / PDFs into structured text descriptions that any text-only LLM can understand. Cross-platform (Windows / macOS / Linux). The only requirements are the bun runtime (main script) and uv (PDF rendering).
+Uses Zhipu GLM's free vision models to turn local images / PDFs / Word documents / image URLs into structured text descriptions that any text-only LLM can understand. Cross-platform (Windows / macOS / Linux), zero npm — the only requirement is the bun runtime.
 
 The skill targets the open Agent Skills standard (agentskills.io), so it plugs into any host that implements it, regardless of product form. The core script also works as a plain CLI from any shell, with or without an agent.
 
@@ -14,10 +14,12 @@ The skill targets the open Agent Skills standard (agentskills.io), so it plugs i
 - **OCR** — verbatim text extraction while preserving layout structure
 - **Deep analysis** — chart data to Markdown tables, trend analysis, formula interpretation
 - **Image2Prompt** — reverse-engineer AI painting prompts from images, output in Chinese and English
-- **PDF reading** — page-by-page rendering and recognition (up to 20 pages per PDF, 3 PDFs per run)
-- **Resumable runs** — per-page cache: reruns skip pages already recognized and only fill in the failures
-- **Reasoning toggle** — `--think` / `--no-think`, with sensible per-mode defaults
-- **Rate-limit handling** — automatic backoff retries (2×), 120-second timeouts, per-image isolation so one failure never stalls the rest
+- **Multi-image compare** — native comparison of several images in one request (image URLs can be mixed in)
+- **PDF reading** — page-by-page rendering with bundled mupdf-wasm, no page cap, resumable runs
+- **Word reading** — plain-text extraction with zero API cost and no key required; documents with images go through a three-tier fallback chain
+- **SVG source analysis and image URLs** — read SVG source directly (no image upload), or pass an http(s) URL for the server to download
+- **Free-model fallback chain** — automatic backoff retries on rate limits, then switches along a chain of free models
+- **Preflight checks** — existence, format whitelist, zero-byte, size and pixel checks (≤6000×6000) before upload
 
 ## Host compatibility
 
@@ -58,8 +60,7 @@ Copy the whole `glm-vision` folder into your host's skills directory (see the ta
 
 | Dependency | Notes |
 |---|---|
-| bun runtime | Runs the main script — install once per machine |
-| uv runtime | Required for PDF rendering only (first run downloads a Python environment, ~21 MB, one-time) |
+| bun runtime | The only runtime dependency — install once per machine. No uv, no Python, no npm, no network installs |
 | Zhipu AI Open Platform API key | Free signup: https://open.bigmodel.cn → Console → API Keys. The default model is fully free — no top-up needed |
 
 ### 3. Configure the API key (pick one)
@@ -81,13 +82,17 @@ bun glm-vision.ts image.png                        # detailed description (defau
 bun glm-vision.ts ocr screenshot.png               # OCR text extraction
 bun glm-vision.ts analyze chart.png                # charts to Markdown tables, trend analysis
 bun glm-vision.ts prompt artwork.jpg               # reverse AI painting prompts
+bun glm-vision.ts compare a.png b.jpg              # multi-image comparison
 bun glm-vision.ts pdf paper.pdf                    # PDF page-by-page recognition
+bun glm-vision.ts docx report.docx                 # Word (zero cost for plain text)
+bun glm-vision.ts svg diagram.svg                  # SVG source analysis
+bun glm-vision.ts detail "https://example.com/a.jpg"   # image URL
 bun glm-vision.ts detail image.png --question "How many cars are in this image?"
 ```
 
-Common flags: `--question` custom prompt / `--think` `--no-think` reasoning toggle / `--force` ignore PDF cache and rerun everything / `--api-key KEY` / `--help`.
+Common flags: `--question` custom prompt / `--think` `--no-think` reasoning toggle / `--temperature T` / `--force` ignore cache / `--parallel N` PDF concurrency / `--save` write results to file / `--api-key KEY` / `--help`.
 
-Limits: images png/jpg/jpeg/webp/gif/bmp up to 5 MB each, 5 images per run; PDFs up to 3 per run, 20 pages each, 100 MB per file.
+Limits: images up to 5 MB each and 6000×6000 pixels (API physical limits); PDFs have no page cap and support resumable runs.
 
 ## Versions & history
 
@@ -99,17 +104,21 @@ Limits: images png/jpg/jpeg/webp/gif/bmp up to 5 MB each, 5 images per run; PDFs
 | Path | Purpose |
 |---|---|
 | `SKILL.md` | Main skill file: trigger rules, workflow, pitfalls guide, challenge-and-response summary |
-| `glm-vision.ts` | Main script (bun runtime, zero npm dependencies) |
-| `pdf2png.py` | PDF page rendering (uv + PyMuPDF) |
-| `evals.json` | Verification records (rerunnable) |
+| `glm-vision.ts` | Main script (bun single runtime, zero npm dependencies) |
+| `docx-parse.ts` | Word plain-text parsing and embedded-image extraction |
+| `render-pdf.js` | PDF page rendering (bundled mupdf-wasm) |
+| `docx2pdf.ps1` | Word COM conversion (optional Windows path) |
+| `node_modules/mupdf/` | Official MuPDF.js build (AGPL-3.0, unmodified, LICENSE included) |
+| `evals.json` | Verification records (environment-limited items annotated) |
 | `README.zh-CN.md` | Chinese version of this file |
 
 ## Privacy (please read)
 
-- All images and PDFs **are uploaded to Zhipu's servers** for recognition
+- Images, PDFs, and Word documents containing images **are uploaded to Zhipu's servers** for recognition (plain-text Word documents are not uploaded)
 - For sensitive files (ID cards, contracts, internal materials), make sure third-party processing is acceptable before use
-- PDF resumable-run cache files (`.glm-vision.json`) sit next to the PDF and contain text results only; delete them after handling sensitive files
+- Cache files (`.cache/`) contain text results only, never the images themselves
 
 ## License
 
 - Project code: MIT License
+- Bundled mupdf.js (MuPDF.js v1.28.0): AGPL-3.0, an official **unmodified** build; its LICENSE ships in `node_modules/mupdf/`

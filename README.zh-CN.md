@@ -1,8 +1,8 @@
 # 视觉之眼（glm-vision）
 
-> 给没有视觉能力的大模型"加眼睛"：让纯文本模型能"看懂"图片和 PDF。
+> 给没有视觉能力的大模型"加眼睛"：让纯文本模型能"看懂"图片、PDF 和 Word。
 
-调用智谱 GLM 免费视觉模型，把本地图片 / PDF 转成结构化文字描述，供任何纯文本大模型理解。跨平台（Windows / macOS / Linux），唯一要求是 bun 运行时（主脚本）与 uv（PDF 渲染）。
+调用智谱 GLM 免费视觉模型，把本地图片 / PDF / Word / 图片 URL 转成结构化文字描述，供任何纯文本大模型理解。跨平台（Windows / macOS / Linux），零 npm——唯一要求是 bun 运行时。
 
 本技能面向开放的 Agent Skills 标准（agentskills.io），任何实现了该标准的宿主都能安装，无论其产品形态如何。核心脚本同时是独立命令行工具，不依赖任何宿主，任何终端都能直接运行。
 
@@ -14,10 +14,12 @@
 - **OCR**：逐字提取图中文字，保持排版结构
 - **深度分析**：图表数据转 Markdown 表格、趋势分析、公式解读
 - **反推提示词**：图片 → AI 绘画提示词（中英文输出）
-- **读 PDF**：逐页渲染识别（单本 ≤20 页、单次 ≤3 本）
-- **断点续跑**：每页识别结果即时缓存，重跑自动跳过已识别页、只补失败页
-- **深度思考开关**：`--think` / `--no-think`，各模式有合理默认值
-- **限流处理**：自动退避重试（2 次）、120 秒超时、逐张独立识别互不拖累
+- **多图对比**：多张图同一请求原生对比（图片 URL 可混用）
+- **读 PDF**：内置 mupdf-wasm 逐页渲染识别、页数无上限、断点续跑
+- **读 Word**：纯文本直接提取（零 API 成本、无需 Key）；含图文档三级降级链
+- **SVG 源码分析与图片 URL**：直接读 SVG 源码（零图片上传），或传入 http(s) URL 由服务器下载
+- **免费模型降级链**：遇限流自动退避重试并沿免费模型链切换
+- **上传前预检**：存在性、格式白名单、0 字节、大小与像素（≤6000×6000）逐项检查
 
 ## 宿主兼容性
 
@@ -58,8 +60,7 @@ git clone https://github.com/STZ5353/glm-vision.git
 
 | 依赖 | 说明 |
 |---|---|
-| bun 运行时 | 运行主脚本，每台机器装一次 |
-| uv 运行时 | 仅 PDF 渲染需要（首次运行联网下载 Python 环境，约 21MB，一次性） |
+| bun 运行时 | 唯一运行时依赖，每台机器装一次。无需 uv、Python、npm、联网安装 |
 | 智谱开放平台 API Key | 免费注册：https://open.bigmodel.cn → 控制台 → API Keys。默认模型完全免费，无需充值 |
 
 ### 3. 配置 API Key（三选一）
@@ -81,13 +82,17 @@ bun glm-vision.ts 图片.png                          # 详细描述（默认）
 bun glm-vision.ts ocr 截图.png                      # OCR 文字提取
 bun glm-vision.ts analyze 图表.png                  # 图表转表格、趋势分析
 bun glm-vision.ts prompt 插画.jpg                   # 反推绘画提示词
+bun glm-vision.ts compare 图1.png 图2.jpg           # 多图对比
 bun glm-vision.ts pdf 文档.pdf                      # PDF 逐页识别
+bun glm-vision.ts docx 报告.docx                    # Word 提取（纯文本零成本）
+bun glm-vision.ts svg 示意图.svg                    # SVG 源码分析
+bun glm-vision.ts detail "https://example.com/a.jpg"   # 图片 URL
 bun glm-vision.ts detail 图片.png --question "图里有几辆车？"
 ```
 
-常用参数：`--question` 自定义提问 / `--think` `--no-think` 思考开关 / `--force` 忽略 PDF 缓存全量重跑 / `--api-key KEY` / `--help`。
+常用参数：`--question` 自定义提问 / `--think` `--no-think` 思考开关 / `--temperature T` / `--force` 忽略缓存 / `--parallel N` PDF 并发 / `--save` 结果落盘 / `--api-key KEY` / `--help`。
 
-限制：图片 png/jpg/jpeg/webp/gif/bmp 单张 ≤5MB、单次 ≤5 张；PDF 单次 ≤3 本、每本 ≤20 页、单文件 ≤100MB。
+限制：图片单张 ≤5MB、像素 ≤6000×6000（API 物理限制）；PDF 无页数上限、支持断点续跑。
 
 ## 版本与历史
 
@@ -99,17 +104,21 @@ bun glm-vision.ts detail 图片.png --question "图里有几辆车？"
 | 路径 | 作用 |
 |---|---|
 | `SKILL.md` | 技能主文件：触发规则、执行工作流、避坑指南、质疑与回应摘要 |
-| `glm-vision.ts` | 主脚本（bun 运行时，零 npm 依赖） |
-| `pdf2png.py` | PDF 逐页渲染（uv + PyMuPDF） |
-| `evals.json` | 验证记录（可复跑） |
+| `glm-vision.ts` | 主脚本（bun 单运行时，零 npm 依赖） |
+| `docx-parse.ts` | Word 纯文本解析与嵌入图片抽取 |
+| `render-pdf.js` | PDF 逐页渲染（内置 mupdf-wasm） |
+| `docx2pdf.ps1` | Word COM 转换（Windows 可选路径） |
+| `node_modules/mupdf/` | MuPDF.js 官方构建产物（AGPL-3.0，未修改，LICENSE 随包附带） |
+| `evals.json` | 验证记录（含环境受限项标注） |
 | `README.md` | 本文件的英文版 |
 
 ## 隐私提醒（务必阅读）
 
-- 所有图片和 PDF **会被上传到智谱服务器**进行识别
+- 图片、PDF 及含图 Word 文档**会被上传到智谱服务器**进行识别（纯文本 Word 不上传）
 - 证件、合同、内部资料等敏感文件，使用前请确认可接受第三方处理
-- PDF 断点续跑缓存文件（`.glm-vision.json`）与 PDF 同目录，只含文字结果；处理敏感文件后建议删除
+- 缓存文件（`.cache/`）只含文字结果，不含图片本身
 
 ## 许可
 
 - 本项目代码：MIT License
+- 内置 mupdf.js（MuPDF.js v1.28.0）：AGPL-3.0，为官方**未修改**构建产物，其 LICENSE 随包附带于 `node_modules/mupdf/`

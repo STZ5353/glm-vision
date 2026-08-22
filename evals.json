@@ -1,73 +1,45 @@
 {
-  "skill_name": "glm-vision",
-  "version": "1.1",
-  "last_run": "2026-08-14",
-  "evals": [
-    {
-      "id": "syntax",
-      "name": "脚本语法检查",
-      "command": "bun build glm-vision.ts --no-bundle --target=bun",
-      "expected_output": "退出码 0，无编译错误",
-      "scorer": "success-signal",
-      "status": "passed"
-    },
-    {
-      "id": "help-and-args",
-      "name": "帮助与参数解析",
-      "command": "bun glm-vision.ts --help && bun glm-vision.ts ocr x.png --think && bun glm-vision.ts ocr x.png --no-think",
-      "expected_output": "帮助文本含 5 种模式与深度思考开关说明；--think/--no-think 被接受（走到文件预检阶段）",
-      "scorer": "success-signal",
-      "status": "passed"
-    },
-    {
-      "id": "guard-missing-file",
-      "name": "防错：文件不存在",
-      "command": "bun glm-vision.ts detail 不存在的图.png",
-      "expected_output": "exit=1，提示文件不存在与检查指引",
-      "scorer": "success-signal",
-      "status": "passed"
-    },
-    {
-      "id": "guard-empty-and-badext",
-      "name": "防错：0字节文件与非法扩展名",
-      "command": "touch empty.png && bun glm-vision.ts detail empty.png; echo x > fake.txt && bun glm-vision.ts detail fake.txt",
-      "expected_output": "分别提示\"文件为空 (0 字节)\"与\"不支持的格式\"，均 exit=1",
-      "scorer": "success-signal",
-      "status": "passed"
-    },
-    {
-      "id": "guard-no-key",
-      "name": "防错：未配置 API Key",
-      "command": "env -u ZHIPU_API_KEY -u GLM_API_KEY bun glm-vision.ts detail real.png",
-      "expected_output": "exit=2，打印四级 Key 配置指引（环境变量/配置文件/--api-key）",
-      "scorer": "success-signal",
-      "status": "passed"
-    },
-    {
-      "id": "live-image",
-      "name": "真实 API：图片识别（GLM-4.6V-Flash + 深度思考）",
-      "command": "用 PyMuPDF 生成含文字与线条的 test.png，bun glm-vision.ts detail test.png",
-      "expected_output": "输出含\"深度思考: 已开启\"，逐字提取文字准确，描述详细",
-      "scorer": "agent-judge",
-      "rubric": "文字逐字提取正确；输出包含模式与文件信息；无编造内容",
-      "status": "passed"
-    },
-    {
-      "id": "live-pdf",
-      "name": "真实 API：PDF 全链路（渲染→逐页识别→临时清理）",
-      "command": "用 PyMuPDF 生成 test.pdf，bun glm-vision.ts pdf test.pdf",
-      "expected_output": "渲染成功、逐页识别输出文字与图形描述准确、结束后系统临时目录无 glm-vision-* 残留",
-      "scorer": "agent-judge",
-      "rubric": "PDF 文字与图形内容识别准确；渲染临时目录被清理；输出含页号标记",
-      "status": "passed"
-    },
-    {
-      "id": "guard-ratelimit",
-      "name": "防错：限流兜底（真实触发过）",
-      "command": "高峰时段连续调用",
-      "expected_output": "识别 429/1302/1305 限流并自动退避重试，最终失败时给出\"稍后重试\"建议而非伪造结果",
-      "scorer": "success-signal",
-      "status": "passed"
-    }
+  "skill": "glm-vision",
+  "version": "2.0.0",
+  "date": "2026-08-16",
+  "environment": { "os": "Windows 11", "runtime": "bun 1.3.14", "defaultModel": "glm-4.6v-flash" },
+  "summary": { "passed": 30, "blocked": 5, "total": 35 },
+  "blockedReason": "环境受限：公网图片源不可达、无 LibreOffice、无真实 .doc 样本、无加密 PDF 夹具、仅 Windows 平台",
+  "results": [
+    { "id": "T01", "group": "基础", "name": "模块编译与参数解析（--help）", "passed": true, "notes": "bun 直接运行 TS，无编译错误" },
+    { "id": "T02", "group": "预检", "name": "0 字节文件拦截", "passed": true, "notes": "明确报错含文件名" },
+    { "id": "T03", "group": "预检", "name": "坏扩展名拦截", "passed": true, "notes": "报错列出完整白名单" },
+    { "id": "T04", "group": "预检", "name": ">5MB 图片拒绝", "passed": true, "notes": "API 物理限制，附压缩指引" },
+    { "id": "T05", "group": "预检", "name": "像素 >6000x6000 拒绝（v2 新增）", "passed": true, "notes": "10000x10000 伪造 PNG 头被正确读出并拦截" },
+    { "id": "T06", "group": "真实API", "name": "图片 detail 识别 + 思考剥离 + token 统计", "passed": true, "notes": "mupdf 渲染 PNG 实测：570 字思考剥离、3247 tokens 统计正确" },
+    { "id": "T07", "group": "真实API", "name": "compare 多图同请求对比", "passed": true, "notes": "蓝/绿两图正确对比出差异，968 tokens" },
+    { "id": "T08", "group": "真实API", "name": "PDF 全管线（渲染+识别+缓存写入）", "passed": true, "notes": "minimal.pdf 2986 tokens，缓存写入 .cache/" },
+    { "id": "T09", "group": "缓存", "name": "断点续跑命中缓存", "passed": true, "notes": "重跑同命令 0 API 调用、0 tokens" },
+    { "id": "T10", "group": "缓存", "name": "mtime 变化缓存自动失效", "passed": true, "notes": "touch 后生成新缓存键并重新调用 API" },
+    { "id": "T11", "group": "缓存", "name": "Word 转换临时 PDF 不写缓存", "passed": true, "notes": "开发期实测发现并修复（writeCache=false）" },
+    { "id": "T12", "group": "降级链", "name": "真实 429 限流 → 自动降级成功", "passed": true, "notes": "glm-4.6v-flash 被限流，自动切 glm-4v-flash 完成识别（质疑21 的实测证据）" },
+    { "id": "T13", "group": "降级链", "name": "mock 429：退避重试 ×3 模型链", "passed": true, "notes": "18.2s 全链重试后明确报错" },
+    { "id": "T14", "group": "降级链", "name": "mock 400：不重试直接降级", "passed": true, "notes": "3 模型各 1 次请求" },
+    { "id": "T15", "group": "降级链", "name": "mock 401/413：致命错误立即终止", "passed": true, "notes": "不降级不重试，文案含行动建议" },
+    { "id": "T16", "group": "降级链", "name": "超时退避重试", "passed": true, "notes": "TIMEOUT=1s + /slow 8s：27.3s 全链重试。开发期发现超时误判 bug 已修复（FatalApiError）" },
+    { "id": "T17", "group": "载荷", "name": "thinking 开关 ×3 组合", "passed": true, "notes": "ocr默认disabled / detail默认enabled / --no-think强制disabled，mock echo 验证" },
+    { "id": "T18", "group": "载荷", "name": "按模式温度表", "passed": true, "notes": "ocr=0.1、--temperature 0.7 覆盖，mock echo 验证" },
+    { "id": "T19", "group": "载荷", "name": "URL 直传原样发送", "passed": true, "notes": "mock echo 验证 image_url.url 含原 URL；本地图含 base64" },
+    { "id": "T20", "group": "Word", "name": "纯文本 docx 零 API 零 Key", "passed": true, "notes": "屏蔽全部 Key 环境变量后成功输出 Markdown，0 tokens" },
+    { "id": "T21", "group": "Word", "name": "TS 解析器解析真实 Word 生成的 docx", "passed": true, "notes": "文本提取正确、drawings=2 探测正确" },
+    { "id": "T22", "group": "Word", "name": "含图 docx → Word COM 真转换 → 逐页识别", "passed": true, "notes": "真实 docx 经 COM 转 PDF 后 mupdf 渲染识别（mock API）" },
+    { "id": "T23", "group": "Word", "name": "Word COM 失败 → 图片直抽降级", "passed": true, "notes": "手工构造 docx 被 Word 拒开，自动降级：文本+嵌入图片识别，内容不丢" },
+    { "id": "T24", "group": "Word", "name": ".doc 旧格式路由", "passed": true, "notes": "OLE 魔法头正确路由到渲染器链" },
+    { "id": "T25", "group": "SVG", "name": "SVG 源码文本化分析载荷", "passed": true, "notes": "mock echo 验证源码随请求发送" },
+    { "id": "T26", "group": "PDF", "name": "--parallel 2 并发逐页", "passed": true, "notes": "3 页 PDF 并发识别成功，缓存 3/3" },
+    { "id": "T27", "group": "路径", "name": "空格+中文路径", "passed": true, "notes": "带空格中文目录下图片识别成功" },
+    { "id": "T28", "group": "输出", "name": "--save 落盘", "passed": true, "notes": "solid3.vision.md 生成且内容完整" },
+    { "id": "T29", "group": "放开", "name": "页数无上限逻辑", "passed": true, "notes": "代码审查确认无页数检查；3 页实测通过（100+ 页未实测）" },
+    { "id": "T30", "group": "基础", "name": "GLM_VISION_BASE_URL 端点切换", "passed": true, "notes": "mock 全场景（错误码/超时/echo）均经该机制注入" },
+    { "id": "B01", "group": "环境受限", "name": "公网图片 URL 真实 API 直传", "passed": false, "notes": "本网络公网图片源不可达；载荷格式已 mock 验证（T19），字段与 zhipu-vision 验证过的实现一致" },
+    { "id": "B02", "group": "环境受限", "name": "LibreOffice 转换路径", "passed": false, "notes": "本机未装 LibreOffice；spawnSync 检测逻辑与 Word COM 路径同构" },
+    { "id": "B03", "group": "环境受限", "name": "真实 .doc 文件转换", "passed": false, "notes": "无真实 .doc 样本；伪 OLE 路由已验证（T24）" },
+    { "id": "B04", "group": "环境受限", "name": "加密 PDF 检测", "passed": false, "notes": "无加密 PDF 夹具；needsPassword() 检测代码已实现（mupdf 官方 API）" },
+    { "id": "B05", "group": "环境受限", "name": "macOS/Linux 实测", "passed": false, "notes": "本机 Windows；脚本无平台专有 API（Word COM 已按 platform 条件隔离），需目标平台实测一次" }
   ]
 }
