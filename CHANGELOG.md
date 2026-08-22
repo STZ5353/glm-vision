@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## v2.0 - 2026-08
+
+- Bundled mupdf-wasm replaces the uv/Python PDF pipeline (zero-install, cross-platform)
+- Pure-TS Word parser; Word documents go through a three-tier fallback chain
+- New `compare` mode (multi-image comparison in one request) and SVG source analysis
+- Image URL direct pass-through
+- Free-model fallback chain with per-model capability table
+- Pixel precheck (≤6000×6000) and `GLM_VISION_BASE_URL` endpoint override
+- Centralized `.cache/` directory; cache invalidates on content change
+- Removed all strategic limits (only API-level physical limits remain)
+
 ## v1.2 - 2026-08-19
 
 - PDF resumable runs: per-page cache; reruns skip cached pages and only fill failures
