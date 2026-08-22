@@ -15,7 +15,7 @@ The skill targets the open Agent Skills standard (agentskills.io), so it plugs i
 - **Deep analysis** — chart data to Markdown tables, trend analysis, formula interpretation
 - **Image2Prompt** — reverse-engineer AI painting prompts from images, output in Chinese and English
 - **Multi-image compare** — native comparison of several images in one request (image URLs can be mixed in)
-- **PDF reading** — page-by-page rendering with bundled mupdf-wasm, no page cap, resumable runs
+- **PDF reading** — page-by-page rendering with bundled mupdf-wasm, no page cap, resumable runs; `--fast` extracts the text layer directly for text-only pages (zero API)
 - **Word reading** — plain-text extraction with zero API cost and no key required; documents with images go through a three-tier fallback chain
 - **SVG source analysis and image URLs** — read SVG source directly (no image upload), or pass an http(s) URL for the server to download
 - **Free-model fallback chain** — automatic backoff retries on rate limits, then switches along a chain of free models
@@ -84,13 +84,14 @@ bun glm-vision.ts analyze chart.png                # charts to Markdown tables, 
 bun glm-vision.ts prompt artwork.jpg               # reverse AI painting prompts
 bun glm-vision.ts compare a.png b.jpg              # multi-image comparison
 bun glm-vision.ts pdf paper.pdf                    # PDF page-by-page recognition
+bun glm-vision.ts pdf paper.pdf --fast             # text-layer extraction (zero API for text-only pages)
 bun glm-vision.ts docx report.docx                 # Word (zero cost for plain text)
 bun glm-vision.ts svg diagram.svg                  # SVG source analysis
 bun glm-vision.ts detail "https://example.com/a.jpg"   # image URL
 bun glm-vision.ts detail image.png --question "How many cars are in this image?"
 ```
 
-Common flags: `--question` custom prompt / `--think` `--no-think` reasoning toggle / `--temperature T` / `--force` ignore cache / `--parallel N` PDF concurrency / `--save` write results to file / `--api-key KEY` / `--help`.
+Common flags: `--question` custom prompt / `--think` `--no-think` reasoning toggle / `--temperature T` / `--force` ignore cache / `--fast` PDF text-layer extraction / `--parallel N` PDF concurrency / `--save` write results to file / `--api-key KEY` / `--help`.
 
 Limits: images up to 5 MB each and 6000×6000 pixels (API physical limits); PDFs have no page cap and support resumable runs.
 

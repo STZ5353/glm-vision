@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * glm-vision.ts — 视觉之眼 v2.0 核心脚本
+ * glm-vision.ts — 视觉之眼 v2.1 核心脚本
  *
  * 读取本地图片 / PDF / Word / 图片 URL → 调用智谱 GLM 视觉模型（默认免费的 glm-4.6v-flash）
  * → 输出结构化文字描述。零 npm 依赖，仅需 bun 运行时（三平台通用）。
@@ -160,7 +160,7 @@ function fail(msg: string, code = 1): never {
 }
 
 function printHelp(): void {
-  console.log(`视觉之眼 v2.0 · 智谱 GLM 视觉桥接脚本（图片/PDF/Word/URL，跨平台零安装）
+  console.log(`视觉之眼 v2.1 · 智谱 GLM 视觉桥接脚本（图片/PDF/Word/URL，跨平台零安装）
 用法: bun glm-vision.ts [模式] 文件路径或URL... [选项]
 
 模式:
@@ -181,6 +181,7 @@ function printHelp(): void {
   --think / --no-think  强制开/关深度思考（默认按模式）
   --temperature T       覆盖模式默认温度
   --force               忽略缓存，全量重新识别 PDF
+  --fast                PDF 文本层直抽：纯文字页零 API 秒出，含图/矢量/乱码页自动走视觉（仅对 pdf 管线生效）
   --parallel N          并发识别页数（默认 1，免费版限流风险自负）
   --save                结果另存为 <文件名>.vision.md
   --api-key KEY         临时指定 Key（不推荐，会留在 shell 历史）
@@ -199,6 +200,7 @@ interface Args {
   apiKey: string;
   think: boolean | null;
   force: boolean;
+  fast: boolean;         // PDF 文本层直抽（零 API 路由，见 processPdf）
   save: boolean;
   parallel: number;
   temperature: number;
@@ -207,7 +209,7 @@ interface Args {
 function parseArgs(argv: string[]): Args {
   const out: Args = {
     mode: "auto", paths: [], urls: [], question: "", apiKey: "",
-    think: null, force: false, save: false, parallel: 1, temperature: 0,
+    think: null, force: false, fast: false, save: false, parallel: 1, temperature: 0,
   };
   const MODES = new Set(["auto", "detail", "ocr", "analyze", "prompt", "compare", "pdf", "docx", "svg"]);
   for (let i = 0; i < argv.length; i++) {
@@ -217,6 +219,7 @@ function parseArgs(argv: string[]): Args {
     if (a === "--think") { out.think = true; continue; }
     if (a === "--no-think") { out.think = false; continue; }
     if (a === "--force") { out.force = true; continue; }
+    if (a === "--fast") { out.fast = true; continue; }
     if (a === "--save") { out.save = true; continue; }
     if (a === "--parallel") { out.parallel = Math.max(1, Math.min(8, parseInt(argv[++i] ?? "1", 10) || 1)); continue; }
     if (a === "--temperature") { out.temperature = parseFloat(argv[++i] ?? "0"); continue; }
@@ -498,6 +501,39 @@ function loadImages(
 }
 
 // ---------- PDF 管线 ----------
+/** 提取 PDF 文本层与视觉元素统计（spawn pdf-text.js）；失败返回 null（回退全视觉） */
+function extractPdfText(pdfPath: string): Array<{ text: string; images: number; vectors: number }> | null {
+  try {
+    const proc = spawnSync({
+      cmd: [BUN, join(SKILL_DIR, "pdf-text.js"), pdfPath],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (proc.exitCode !== 0) {
+      const err = new TextDecoder().decode(proc.stderr).trim();
+      console.warn(`[glm-vision] 文本层提取失败 (exit ${proc.exitCode}): ${err.slice(0, 200)}`);
+      return null;
+    }
+    const lines = new TextDecoder().decode(proc.stdout).trim().split(/\r?\n/).filter(Boolean);
+    return lines
+      .map((l) => JSON.parse(l) as { page: number; text: string; images: number; vectors: number })
+      .sort((a, b) => a.page - b.page);
+  } catch (e) {
+    console.warn(`[glm-vision] 文本层提取失败: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
+}
+
+/** --fast 路由：纯文字页可零 API 直抽；含栅格图/矢量图/文本过少（扫描件/空白）/乱码启发式 → 走视觉 */
+function isTextOnlyPage(info: { text: string; images: number; vectors: number }): boolean {
+  if (info.images > 0 || info.vectors > 0) return false;
+  if (info.text.length < 30) return false;
+  const replacement = (info.text.match(/�/g) ?? []).length;
+  const control = (info.text.match(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g) ?? []).length;
+  if (replacement > 3 || control / info.text.length > 0.005) return false;
+  return true;
+}
+
 function renderPdf(pdfPath: string, tmpDir: string): string[] {
   const proc = spawnSync({
     cmd: [BUN, join(SKILL_DIR, "render-pdf.js"), pdfPath, tmpDir],
@@ -570,13 +606,23 @@ async function runPool<T>(items: T[], n: number, fn: (item: T, idx: number) => P
 async function processPdf(
   pdfPath: string, mode: string, promptTemplate: string, question: string,
   think: boolean, temperature: number,
-  force: boolean, parallel: number, writeCache: boolean,
+  force: boolean, parallel: number, writeCache: boolean, fast: boolean,
   getKey: () => string, tag: string, emit: (s: string) => void,
 ): Promise<{ ok: boolean; tokens: number }> {
-  emit(`\n${tag} · PDF 逐页识别`);
+  emit(`\n${tag} · PDF 逐页识别${fast ? "（--fast 文本直抽路由）" : ""}`);
   const tmpDir = mkdtempSync(join(tmpdir(), "glm-vision-pdf-"));
   let tokens = 0;
   try {
+    const fastInfo = fast ? extractPdfText(pdfPath) : null;
+    if (fast && fastInfo === null) emit("▸ 文本层提取失败，已回退为全视觉识别。");
+    if (fastInfo && fastInfo.length > 0 && fastInfo.every((p) => isTextOnlyPage(p))) {
+      emit(`▸ 共 ${fastInfo.length} 页均为纯文字页，文本层直抽（零 API，无需渲染）...`);
+      fastInfo.forEach((p, idx) => {
+        emit(`[第 ${idx + 1}/${fastInfo.length} 页 · 文本层直抽]`);
+        emit(p.text || "(本页无可提取文字)");
+      });
+      return { ok: true, tokens: 0 };
+    }
     emit("▸ 渲染中（内置 mupdf-wasm，约 144dpi）...");
     const pages = renderPdf(pdfPath, tmpDir);
 
@@ -596,13 +642,19 @@ async function processPdf(
     const pageResults = new Map<number, string>();
     await runPool(pages, parallel, async (pagePath, idx) => {
       const pageNo = String(idx + 1);
+      if (fastInfo && fastInfo[idx] && isTextOnlyPage(fastInfo[idx])) {
+        emit(`[第 ${idx + 1}/${pages.length} 页 · 文本层直抽]\n${fastInfo[idx].text}`);
+        pageResults.set(idx, fastInfo[idx].text);
+        ok++;
+        return;
+      }
       if (pagesCache[pageNo]) {
-        emit(`[第 ${idx + 1}/${pages.length} 页]（命中缓存，跳过 API 调用）\n${pagesCache[pageNo]}`);
+        emit(`[第 ${idx + 1}/${pages.length} 页${fastInfo ? " · 视觉识别" : ""}]（命中缓存，跳过 API 调用）\n${pagesCache[pageNo]}`);
         pageResults.set(idx, pagesCache[pageNo]);
         ok++;
         return;
       }
-      emit(`[第 ${idx + 1}/${pages.length} 页]`);
+      emit(`[第 ${idx + 1}/${pages.length} 页${fastInfo ? " · 视觉识别" : ""}]`);
       try {
         const b64 = readFileSync(pagePath).toString("base64");
         const prompt = (question || promptTemplate)
@@ -724,7 +776,7 @@ async function processWord(
     if (pdfPath) {
       emit("▸ 已转换为 PDF，开始逐页识别...");
       // 转换产物是临时 PDF（每次路径不同），不写缓存
-      const r = await processPdf(pdfPath, "docx", PROMPTS.docx, question, think, temperature, true, 1, false, getKey, tag + "（经 Word/LibreOffice 转换）", emit);
+      const r = await processPdf(pdfPath, "docx", PROMPTS.docx, question, think, temperature, true, 1, false, false, getKey, tag + "（经 Word/LibreOffice 转换）", emit);
       return { ok: r.ok, tokens: r.tokens };
     }
 
@@ -803,7 +855,7 @@ async function main(): Promise<void> {
     output.push(s);
   };
 
-  emit(`━━━ 视觉之眼 v2.0 · ${MODEL} ━━━`);
+  emit(`━━━ 视觉之眼 v2.1 · ${MODEL} ━━━`);
   emit(`深度思考: ${think ? "按请求开启（可 --no-think 关闭）" : "已关闭（可 --think 开启）"} · 降级链: ${[MODEL, ...FALLBACK.filter((m) => m !== MODEL)].join(" → ")}`);
   emit("隐私提示: 文件内容将上传至智谱服务器识别，请确保已获授权。");
 
@@ -859,7 +911,7 @@ async function main(): Promise<void> {
       } else {
         const ext = extname(it.path as string).toLowerCase();
         if (ext === ".pdf") {
-          r = await processPdf(it.path as string, mode, PROMPTS.pdf, args.question, think, temperature, args.force, args.parallel, true, getKey, tag, emit);
+          r = await processPdf(it.path as string, mode, PROMPTS.pdf, args.question, think, temperature, args.force, args.parallel, true, args.fast, getKey, tag, emit);
         } else if (WORD_EXTS.has(ext)) {
           r = await processWord(it.path as string, args.question, think, temperature, getKey, tag, emit);
         } else if (ext === ".svg") {

@@ -15,7 +15,7 @@
 - **深度分析**：图表数据转 Markdown 表格、趋势分析、公式解读
 - **反推提示词**：图片 → AI 绘画提示词（中英文输出）
 - **多图对比**：多张图同一请求原生对比（图片 URL 可混用）
-- **读 PDF**：内置 mupdf-wasm 逐页渲染识别、页数无上限、断点续跑
+- **读 PDF**：内置 mupdf-wasm 逐页渲染识别、页数无上限、断点续跑；`--fast` 对纯文字页直接抽文本层（零 API）
 - **读 Word**：纯文本直接提取（零 API 成本、无需 Key）；含图文档三级降级链
 - **SVG 源码分析与图片 URL**：直接读 SVG 源码（零图片上传），或传入 http(s) URL 由服务器下载
 - **免费模型降级链**：遇限流自动退避重试并沿免费模型链切换
@@ -84,13 +84,14 @@ bun glm-vision.ts analyze 图表.png                  # 图表转表格、趋势
 bun glm-vision.ts prompt 插画.jpg                   # 反推绘画提示词
 bun glm-vision.ts compare 图1.png 图2.jpg           # 多图对比
 bun glm-vision.ts pdf 文档.pdf                      # PDF 逐页识别
+bun glm-vision.ts pdf 论文.pdf --fast               # 文本层直抽（纯文字页零 API）
 bun glm-vision.ts docx 报告.docx                    # Word 提取（纯文本零成本）
 bun glm-vision.ts svg 示意图.svg                    # SVG 源码分析
 bun glm-vision.ts detail "https://example.com/a.jpg"   # 图片 URL
 bun glm-vision.ts detail 图片.png --question "图里有几辆车？"
 ```
 
-常用参数：`--question` 自定义提问 / `--think` `--no-think` 思考开关 / `--temperature T` / `--force` 忽略缓存 / `--parallel N` PDF 并发 / `--save` 结果落盘 / `--api-key KEY` / `--help`。
+常用参数：`--question` 自定义提问 / `--think` `--no-think` 思考开关 / `--temperature T` / `--force` 忽略缓存 / `--fast` PDF 文本层直抽 / `--parallel N` PDF 并发 / `--save` 结果落盘 / `--api-key KEY` / `--help`。
 
 限制：图片单张 ≤5MB、像素 ≤6000×6000（API 物理限制）；PDF 无页数上限、支持断点续跑。
 
